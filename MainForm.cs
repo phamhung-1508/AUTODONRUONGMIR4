@@ -32,7 +32,7 @@ public partial class MainForm : Form
 
         // Ô nhập số cửa sổ và nút Khóa
         Label lblIndex = new Label() { Text = "Số cửa sổ (1-100):", Left = 20, Top = 20, Width = 110, TextAlign = ContentAlignment.MiddleLeft };
-        txtWindowIndex = new TextBox() { Text = "1", Left = 135, Top = 22, Width = 60 };
+        txtWindowIndex = new TextBox() { Text = "4", Left = 135, Top = 22, Width = 60 }; // Mặc định để test số 4 theo máy bạn
         
         btnLock = new Button() { Text = "Khoá", Left = 205, Top = 20, Width = 80, Height = 25 };
         btnLock.Click += BtnLock_Click;
@@ -67,8 +67,8 @@ public partial class MainForm : Form
     {
         if (int.TryParse(txtWindowIndex.Text, out int index))
         {
-            // Tên định dạng cửa sổ game MIR4 (ví dụ: Min4G(5))
-            string keyword = $"Min4G({index})";
+            // Sửa lại đúng định dạng tên cửa sổ chuẩn trên thanh tiêu đề game: Mir4[số_acc]
+            string keyword = $"Mir4[{index}]";
             currentHWnd = Win32API.FindWindowByTitleKeyword(keyword);
 
             if (currentHWnd != IntPtr.Zero)
@@ -78,7 +78,7 @@ public partial class MainForm : Form
                 botEngine.SetTarget(currentHWnd);
                 btnStart.Enabled = true;
                 lblStatus.Text = $"Trạng thái: Đã khoá acc số {index} (Size: 811x475)";
-                MessageBox.Show($"Đã khóa thành công cửa sổ số {index}!\nKích thước đã ép về chuẩn: 811x475", "Thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show($"Đã khóa thành công cửa sổ '{keyword}'!\nKích thước đã ép về chuẩn: 811x475", "Thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             else
             {
