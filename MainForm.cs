@@ -68,7 +68,7 @@ public partial class MainForm : Form
         if (int.TryParse(txtWindowIndex.Text, out int index))
         {
             // Sửa lại đúng định dạng tên cửa sổ chuẩn trên thanh tiêu đề game: Mir4[số_acc]
-            string keyword = $"Mir4[{index}]";
+            string keyword = $"Mir4G[{index}]";
             currentHWnd = Win32API.FindWindowByTitleKeyword(keyword);
 
             if (currentHWnd != IntPtr.Zero)
