@@ -64,7 +64,7 @@ public class BotEngine
         {
             case 1:
                 // Mở bản đồ bằng F10
-                Win32API.SendKey(_targetHWnd, Keys.F10);
+                Win32API.SendF10Key(_targetHWnd);
                 break;
             case 2:
             case 3:
