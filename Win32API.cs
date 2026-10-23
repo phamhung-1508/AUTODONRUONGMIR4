@@ -21,10 +21,11 @@ public static class Win32API
 
     public const uint WM_KEYDOWN = 0x0100;
     public const uint WM_KEYUP = 0x0101;
+    public const uint WM_MOUSEMOVE = 0x0200;
     public const uint WM_LBUTTONDOWN = 0x0201;
     public const uint WM_LBUTTONUP = 0x0202;
+    public const uint WM_MOUSEWHEEL = 0x020A;
 
-    // Tìm Handle cửa sổ dựa theo tên tiêu đề chứa số cửa sổ (ví dụ: Min4G(5))
     public static IntPtr FindWindowByTitleKeyword(string keyword)
     {
         IntPtr foundHandle = IntPtr.Zero;
@@ -32,18 +33,16 @@ public static class Win32API
         {
             StringBuilder sb = new StringBuilder(256);
             GetWindowText(hWnd, sb, sb.Capacity);
-            string title = sb.ToString();
-            if (title.Contains(keyword))
+            if (sb.ToString().Contains(keyword))
             {
                 foundHandle = hWnd;
-                return false; // Dừng tìm kiếm khi thấy
+                return false; 
             }
             return true;
         }, IntPtr.Zero);
         return foundHandle;
     }
 
-    // Gửi phím ngầm (Không cần focus hay chiếm chuột phím)
     public static void SendKey(IntPtr hWnd, Keys key)
     {
         PostMessage(hWnd, WM_KEYDOWN, (IntPtr)(int)key, IntPtr.Zero);
@@ -51,12 +50,27 @@ public static class Win32API
         PostMessage(hWnd, WM_KEYUP, (IntPtr)(int)key, IntPtr.Zero);
     }
 
-    // Gửi click chuột ngầm vào tọa độ (x, y) của client game
     public static void SendClick(IntPtr hWnd, int x, int y)
     {
         IntPtr lParam = (IntPtr)((y << 16) | (x & 0xFFFF));
         PostMessage(hWnd, WM_LBUTTONDOWN, (IntPtr)0x0001, lParam);
         System.Threading.Thread.Sleep(50);
         PostMessage(hWnd, WM_LBUTTONUP, (IntPtr)0, lParam);
+    }
+
+    // Đưa con trỏ chuột ảo đến tọa độ ngầm (Hover)
+    public static void SendMouseMove(IntPtr hWnd, int x, int y)
+    {
+        IntPtr lParam = (IntPtr)((y << 16) | (x & 0xFFFF));
+        PostMessage(hWnd, WM_MOUSEMOVE, IntPtr.Zero, lParam);
+    }
+
+    // Lăn chuột ngầm xuống dưới (Scroll Down)
+    public static void SendScrollDown(IntPtr hWnd, int x, int y)
+    {
+        int wheelDelta = -120; // Giá trị chuẩn của Windows cho 1 nấc lăn xuống
+        IntPtr wParam = (IntPtr)((wheelDelta << 16) | 0);
+        IntPtr lParam = (IntPtr)((y << 16) | (x & 0xFFFF));
+        PostMessage(hWnd, WM_MOUSEWHEEL, wParam, lParam);
     }
 }
