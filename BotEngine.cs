@@ -14,125 +14,252 @@ public class BotEngine
 
     public void SetTarget(IntPtr hWnd) { _targetHWnd = hWnd; }
 
-    public void Start() { 
+    public void Start() 
+    { 
         if (_targetHWnd == IntPtr.Zero) return;
-        lock (_lockObj) { if (_currentState == State.Running) return; _currentState = State.Running; _cts = new CancellationTokenSource(); }
+        lock (_lockObj) 
+        { 
+            if (_currentState == State.Running) return; 
+            _currentState = State.Running; 
+            _cts = new CancellationTokenSource(); 
+        }
         Task.Run(() => RunBotLoop(_cts.Token));
     }
+
     public void Stop() { lock (_lockObj) { _cts?.Cancel(); _currentState = State.Stopped; } }
     public void Pause() { lock (_lockObj) { if (_currentState == State.Running) _currentState = State.Paused; } }
     public void Resume() { lock (_lockObj) { if (_currentState == State.Paused) _currentState = State.Running; } }
 
-    private void CheckPauseResume(CancellationToken token) { 
-        while (true) { token.ThrowIfCancellationRequested(); bool isPaused; lock (_lockObj) { isPaused = (_currentState == State.Paused); } if (!isPaused) break; Thread.Sleep(200); }
-    }
-
-    // Hàm đợi ảnh xuất hiện trong tối đa X giây và tự động Click. Trả về True nếu thành công, False nếu không thấy.
-    private async Task<bool> WaitAndClickImage(string imageName, CancellationToken token, int timeoutMs = 3000)
-    {
-        string path = "Images\\" + imageName;
-        long start = Environment.TickCount;
-        while (Environment.TickCount - start < timeoutMs)
-        {
-            CheckPauseResume(token);
-            Point? loc = ImageFinder.FindImageLocation(_targetHWnd, path, 0.8);
-            if (loc.HasValue)
-            {
-                Win32API.SendClick(_targetHWnd, loc.Value.X, loc.Value.Y);
-                await Task.Delay(500, token); // Đợi UI phản hồi sau khi click
-                return true;
-            }
-            await Task.Delay(200, token); // Quét lại mỗi 0.2s
+    private void CheckPauseResume(CancellationToken token) 
+    { 
+        while (true) 
+        { 
+            token.ThrowIfCancellationRequested(); 
+            bool isPaused; 
+            lock (_lockObj) { isPaused = (_currentState == State.Paused); } 
+            if (!isPaused) break; 
+            Thread.Sleep(200); 
         }
-        return false; // Hết thời gian mà không thấy ảnh
     }
 
-    // Hàm chỉ tìm ảnh (không click) dùng để lấy tọa độ
-    private async Task<Point?> WaitForImage(string imageName, CancellationToken token, int timeoutMs = 3000)
+    // Chờ một ảnh xuất hiện trong tối đa timeoutMs
+    private async Task<Point?> WaitForImageAsync(string imageName, CancellationToken token, int timeoutMs = 3500)
     {
         string path = "Images\\" + imageName;
         long start = Environment.TickCount;
         while (Environment.TickCount - start < timeoutMs)
         {
             CheckPauseResume(token);
-            Point? loc = ImageFinder.FindImageLocation(_targetHWnd, path, 0.8);
+            Point? loc = ImageFinder.FindImageLocation(_targetHWnd, path, 0.68);
             if (loc.HasValue) return loc;
-            await Task.Delay(200, token);
+            await Task.Delay(250, token);
         }
         return null;
+    }
+
+    // Thực hiện thao tác của một bước cụ thể
+    private async Task ExecuteStepAction(int step, Point? cachedLoc, CancellationToken token)
+    {
+        switch (step)
+        {
+            case 1:
+                // Mở bản đồ bằng F10
+                Win32API.SendKey(_targetHWnd, Keys.F10);
+                break;
+            case 2:
+            case 3:
+            case 4:
+            case 5:
+                // Click vào tọa độ icon đã tìm thấy ở bước đó
+                if (cachedLoc.HasValue)
+                {
+                    Win32API.SendClick(_targetHWnd, cachedLoc.Value.X, cachedLoc.Value.Y);
+                }
+                break;
+        }
+        // Chờ 2 - 3 giây sau mỗi lần tương tác để game kịp load UI
+        await Task.Delay(2500, token);
     }
 
     private async Task RunBotLoop(CancellationToken token)
     {
         try
         {
-            // Vòng lặp vô tận: Nếu bất kỳ bước nào = false (fail), lệnh 'continue' sẽ đưa bot quay lại đầu vòng lặp.
             while (true)
             {
                 CheckPauseResume(token);
 
-                // 1. Ấn ESC 2 lần
+                // --- BƯỚC 0: RESET GIAO DIỆN BẰNG ESC 2 LẦN ---
                 Win32API.SendKey(_targetHWnd, Keys.Escape);
                 await Task.Delay(500, token);
                 Win32API.SendKey(_targetHWnd, Keys.Escape);
-                await Task.Delay(1000, token); // Đợi 1 giây như yêu cầu
+                await Task.Delay(1000, token); // Chờ 1 giây ổn định màn hình
 
-                // 2. Ấn F10 mở bản đồ
-                Win32API.SendKey(_targetHWnd, Keys.F10);
-                await Task.Delay(1000, token);
+                int currentStep = 1;
+                int retryCount = 0;
+                bool needFullReset = false;
 
-                // 3. Tìm và click Thuyền Nhỏ
-                if (!await WaitAndClickImage("thuyen_nho_icon.png", token)) continue;
+                Point? lastStepClickLoc = null;
 
-                // 4. Tìm và click Thuyền Lớn
-                if (!await WaitAndClickImage("thuyen_lon_icon.png", token)) continue;
-
-                // 5. Tìm Map Thế Giới và click Bicheon Icon
-                // (Bot sẽ đợi đến khi load xong map thế giới và bicheon_icon hiện ra)
-                if (!await WaitAndClickImage("bicheon_icon.png", token)) continue;
-
-                // 6. Tìm và click Thành Bicheon
-                if (!await WaitAndClickImage("thanh_bicheon_icon.png", token)) continue;
-
-                // 7. Chỏ chuột vào NPC Bicheon (Tìm tọa độ khu vực NPC)
-                Point? npcLoc = await WaitForImage("npc_bicheon_icon.png", token);
-                if (npcLoc == null) continue;
-                
-                // Di chuyển chuột ảo vào khu vực NPC để chuẩn bị cuộn
-                Win32API.SendMouseMove(_targetHWnd, npcLoc.Value.X, npcLoc.Value.Y);
-                await Task.Delay(200, token);
-
-                // 8. Lăn chuột liên tục trong 2 giây để tìm kho đồ
-                bool foundKho = false;
-                long startScroll = Environment.TickCount;
-                while (Environment.TickCount - startScroll < 2000) // Vòng lặp 2 giây
+                while (currentStep <= 6 && !needFullReset)
                 {
                     CheckPauseResume(token);
-                    
-                    // Nếu thấy chữ kho đồ xuất hiện thì ngưng lăn
-                    Point? khoLoc = ImageFinder.FindImageLocation(_targetHWnd, "Images\\kho_do_bicheon_icon.png", 0.8);
-                    if (khoLoc.HasValue)
+
+                    if (currentStep == 1)
                     {
-                        foundKho = true;
-                        break;
+                        // Bước 1: Mở F10 và kiểm tra xem có thấy thuyen_nho_icon không
+                        await ExecuteStepAction(1, null, token);
+                        Point? nextImg = await WaitForImageAsync("thuyen_nho_icon.png", token);
+                        
+                        if (nextImg.HasValue)
+                        {
+                            lastStepClickLoc = nextImg.Value; // Lưu lại để bước 2 click
+                            currentStep = 2;
+                            retryCount = 0;
+                        }
+                        else
+                        {
+                            retryCount++;
+                            if (retryCount >= 3)
+                            {
+                                needFullReset = true; // Thử lại quá 3 lần -> quay lại ESC 2 lần
+                            }
+                        }
                     }
-                    
-                    // Nếu chưa thấy thì gửi lệnh lăn chuột xuống
-                    Win32API.SendScrollDown(_targetHWnd, npcLoc.Value.X, npcLoc.Value.Y);
-                    await Task.Delay(150, token); 
+                    else if (currentStep == 2)
+                    {
+                        // Bước 2: Click thuyen_nho_icon -> Chờ thuyen_lon_icon
+                        await ExecuteStepAction(2, lastStepClickLoc, token);
+                        Point? nextImg = await WaitForImageAsync("thuyen_lon_icon.png", token);
+
+                        if (nextImg.HasValue)
+                        {
+                            lastStepClickLoc = nextImg.Value;
+                            currentStep = 3;
+                            retryCount = 0;
+                        }
+                        else
+                        {
+                            retryCount++;
+                            if (retryCount >= 3) needFullReset = true;
+                            // Nếu chưa quá 3 lần, vòng lặp chạy lại sẽ click lại thuyen_nho_icon
+                        }
+                    }
+                    else if (currentStep == 3)
+                    {
+                        // Bước 3: Click thuyen_lon_icon -> Chờ bản đồ thế giới & bicheon_icon
+                        await ExecuteStepAction(3, lastStepClickLoc, token);
+                        Point? nextImg = await WaitForImageAsync("bicheon_icon.png", token, 4500);
+
+                        if (nextImg.HasValue)
+                        {
+                            lastStepClickLoc = nextImg.Value;
+                            currentStep = 4;
+                            retryCount = 0;
+                        }
+                        else
+                        {
+                            retryCount++;
+                            if (retryCount >= 3) needFullReset = true;
+                        }
+                    }
+                    else if (currentStep == 4)
+                    {
+                        // Bước 4: Click bicheon_icon -> Chờ thanh_bicheon_icon
+                        await ExecuteStepAction(4, lastStepClickLoc, token);
+                        Point? nextImg = await WaitForImageAsync("thanh_bicheon_icon.png", token, 4000);
+
+                        if (nextImg.HasValue)
+                        {
+                            lastStepClickLoc = nextImg.Value;
+                            currentStep = 5;
+                            retryCount = 0;
+                        }
+                        else
+                        {
+                            retryCount++;
+                            if (retryCount >= 3) needFullReset = true;
+                        }
+                    }
+                    else if (currentStep == 5)
+                    {
+                        // Bước 5: Click thanh_bicheon_icon -> Chờ tab danh sách NPC (npc_bicheon_icon)
+                        await ExecuteStepAction(5, lastStepClickLoc, token);
+                        Point? npcLoc = await WaitForImageAsync("npc_bicheon_icon.png", token, 4000);
+
+                        if (npcLoc.HasValue)
+                        {
+                            // Đã hiện bảng NPC: Rê chuột ảo vào danh sách NPC
+                            Win32API.SendMouseMove(_targetHWnd, npcLoc.Value.X, npcLoc.Value.Y);
+                            await Task.Delay(300, token);
+
+                            // Lăn chuột tìm kho đồ trong 2.5 giây
+                            bool foundKho = false;
+                            long startScroll = Environment.TickCount;
+                            while (Environment.TickCount - startScroll < 2500)
+                            {
+                                CheckPauseResume(token);
+                                Point? khoLoc = ImageFinder.FindImageLocation(_targetHWnd, "Images\\kho_do_bicheon_icon.png", 0.68);
+                                if (khoLoc.HasValue)
+                                {
+                                    foundKho = true;
+                                    break;
+                                }
+                                Win32API.SendScrollDown(_targetHWnd, npcLoc.Value.X, npcLoc.Value.Y);
+                                await Task.Delay(150, token);
+                            }
+
+                            if (foundKho)
+                            {
+                                currentStep = 6;
+                                retryCount = 0;
+                            }
+                            else
+                            {
+                                retryCount++;
+                                if (retryCount >= 3) needFullReset = true;
+                            }
+                        }
+                        else
+                        {
+                            retryCount++;
+                            if (retryCount >= 3) needFullReset = true;
+                        }
+                    }
+                    else if (currentStep == 6)
+                    {
+                        // Bước 6: Click nút Tele đến kho
+                        Point? teleLoc = await WaitForImageAsync("tele_kho.png", token, 3000);
+                        if (teleLoc.HasValue)
+                        {
+                            Win32API.SendClick(_targetHWnd, teleLoc.Value.X, teleLoc.Value.Y);
+                            await Task.Delay(3000, token);
+                            
+                            // Hoàn thành chu trình tele kho thành công! Dừng bot tại đây.
+                            return;
+                        }
+                        else
+                        {
+                            retryCount++;
+                            if (retryCount >= 3) needFullReset = true;
+                        }
+                    }
                 }
 
-                if (!foundKho) continue; // Nếu cuộn 2s vẫn không thấy -> quay lại từ đầu (bấm ESC)
-
-                // 9. Bấm vào nút Tele kho
-                if (!await WaitAndClickImage("tele_kho.png", token)) continue;
-
-                // --- HOÀN THÀNH 1 CHU KỲ THÀNH CÔNG ---
-                // Bot có thể đợi 15-20s cho nhân vật chạy tới kho rồi mới tiếp tục vòng lặp (hoặc dừng tùy bạn)
-                await Task.Delay(15000, token); 
+                // Nếu vòng lặp con thoát ra vì needFullReset == true, 
+                // vòng lặp while(true) sẽ tiếp tục chạy từ đầu (ấn ESC 2 lần).
             }
         }
-        catch (OperationCanceledException) { /* Xử lý khi nhấn nút Dừng */ }
-        finally { lock (_lockObj) { _currentState = State.Stopped; } }
+        catch (OperationCanceledException)
+        {
+            // Bắt sự kiện khi người dùng bấm nút Dừng
+        }
+        finally
+        {
+            lock (_lockObj)
+            {
+                _currentState = State.Stopped;
+            }
+        }
     }
 }
